@@ -47,7 +47,7 @@ void frtty_rx_reset(frtty_rx *rx);
  * received (codes beyond max_codes are counted but dropped). The input is processed in
  * blocks of one symbol starting at x[0], so an AFC correction takes effect within a
  * character; the result therefore depends on how the audio is split into calls when
- * AFC is on, exactly as in the reference implementation.
+ * AFC is on, exactly as in the former Python reference (wave-owl commit b6be59b).
  */
 size_t frtty_rx_process(frtty_rx *rx, const double *x, size_t n,
                         uint8_t *codes, size_t max_codes);

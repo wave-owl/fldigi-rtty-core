@@ -7,7 +7,8 @@
  * the fldigi developers.
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * A C translation of wave-owl's Python port (src/modes/rtty/demod.py at b6be59b):
+ * A C translation of wave-owl's former Python reference receiver (src/modes/rtty/demod.py,
+ * wave-owl commit b6be59b; that file has since been removed and this core is the reference):
  *
  * 1. Two complex mixers move mark and space to 0 Hz (rtty.cxx:681-685, mixer at
  *    rtty.cxx:393-401).
@@ -295,8 +296,9 @@ const double *frtty_filter_taps(const frtty_rx *rx)
 }
 
 /*
- * The RTTY filter on one block of mixer outputs (the reference: scipy lfilter with
- * persistent state), by overlap-save: [history | block | zeros] -> FFT -> * H -> IFFT;
+ * The RTTY filter on one block of mixer outputs (the former Python reference, wave-owl
+ * commit b6be59b, used scipy lfilter with persistent state), by overlap-save:
+ * [history | block | zeros] -> FFT -> * H -> IFFT;
  * the outputs at the block's positions are the linear convolution because
  * nfft >= ntaps - 1 + block length. Equal to the direct form up to rounding.
  */
