@@ -242,7 +242,7 @@ All declarations are in `include/fldigi_rtty.h`.
 
 | Function | Description |
 |----------|-------------|
-| `const char *frtty_version(void)` | Version and contract string, e.g. `"fldigi-rtty-core 0.1.0 contract=rtty-c1 abi=1"`. Static string, never freed. |
+| `const char *frtty_version(void)` | Version and contract string, e.g. `"fldigi-rtty-core 0.1.1 contract=rtty-c1 abi=1"`. Static string, never freed. |
 | `frtty_rx *frtty_rx_create(const frtty_config *cfg)` | New receiver in its initial state. The config is copied; `cfg` may be freed afterwards. `NULL` on invalid config or out of memory. |
 | `void frtty_rx_destroy(frtty_rx *rx)` | Free the receiver. `NULL` is allowed. |
 | `void frtty_rx_reset(frtty_rx *rx)` | Back to the state right after create: mixer phases, filter history, trackers, framing, SNR sums and AFC offset are cleared. Tones keep their last values (from `set_tones`). `NULL` is ignored. |

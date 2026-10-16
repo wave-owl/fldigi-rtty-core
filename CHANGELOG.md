@@ -3,9 +3,10 @@
 All notable changes to this project are documented here. Versioning and the meaning of
 contract and ABI changes are described in the README, section "Contract and versioning".
 
-## 0.1.1 (unreleased)
+## 0.1.1 (2026-10-16)
 
-Documentation only; no change to the code, the contract (`rtty-c1`) or the ABI (1).
+Documentation release; no change to the contract (`rtty-c1`), the ABI (1) or the
+decoded output.
 
 - README rewritten: scope, signal chain with fldigi 4.2.13 citations, configuration and
   API reference, C and Python usage, contract and versioning policy, verification,
@@ -15,7 +16,7 @@ Documentation only; no change to the code, the contract (`rtty-c1`) or the ABI (
   wave-owl.
 - Added this changelog.
 
-Note: `FRTTY_VERSION` in `src/rtty_rx.c` still reads `0.1.0`; bump it when tagging 0.1.1.
+- `frtty_version()` reports 0.1.1 and derives `abi=` from `FRTTY_ABI`.
 
 ## 0.1.0 (2026-10-16)
 

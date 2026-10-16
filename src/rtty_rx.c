@@ -29,7 +29,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define FRTTY_VERSION "0.1.0"
+#define FRTTY_VERSION "0.1.1"
+#define FRTTY_XSTR(x) #x
+#define FRTTY_STR(x) FRTTY_XSTR(x)
 
 /* fldigi's shaping constant of the RTTY filter (fftfilt.cxx:263). */
 #define RTTY_FILTER_K 1.4
@@ -72,7 +74,7 @@ struct frtty_rx {
 
 const char *frtty_version(void)
 {
-    return "fldigi-rtty-core " FRTTY_VERSION " contract=" FRTTY_CONTRACT " abi=1";
+    return "fldigi-rtty-core " FRTTY_VERSION " contract=" FRTTY_CONTRACT " abi=" FRTTY_STR(FRTTY_ABI);
 }
 
 /* sin(pi x) / (pi x), as fldigi sinc (src/include/misc.h:43-46) and numpy.sinc. */
