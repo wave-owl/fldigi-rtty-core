@@ -255,7 +255,11 @@ static void test_invalid(void)
     CHECK(make(8000, 3100, 2930, 45.45, 1.5) == NULL, "mark above 3000 Hz accepted");
     CHECK(make(8000, 2295, 2125, 45.45, 1.25) == NULL, "stop 1.25 accepted");
     CHECK(make(8000, 2295, 2125, 0.0, 1.5) == NULL, "baud 0 accepted");
-    CHECK(make(8000, 2295, 1295, 45.45, 1.5) != NULL, "shift 1000 Hz refused");
+    {
+        frtty_tx *wide = make(8000, 2295, 1295, 45.45, 1.5);
+        CHECK(wide != NULL, "shift 1000 Hz refused");
+        frtty_tx_destroy(wide);
+    }
     CHECK(frtty_tx_create(NULL) == NULL, "NULL config accepted");
 }
 
