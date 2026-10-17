@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. Versioning and the meaning of
 contract and ABI changes are described in the README, section "Contract and versioning".
 
+## 0.2.0 (2026-10-17)
+
+- Transmitter after fldigi 4.2.13 shaped RTTY TX (`send_char`, `send_symbol`, `send_stop`,
+  `send_idle`, `flush_stream`, `Oscillator`, `SymbolShaper`, `rcos`): additive
+  `frtty_tx_*` API in `src/rtty_tx.c`, 5-bit codes in, real audio out, 8000/12000/48000 Hz,
+  1/1.5/2 stop bits, per-instance `maxamp`.
+- Version string carries the capability tag `tx=1`; contract `rtty-c1` and ABI 1
+  unchanged, receiver unchanged (RX goldens identical).
+- TX goldens: fldigi 4.2.13's own TX output for 45.45 Bd with 1, 1.5 and 2 stop bits and
+  a long 50 Bd text; the port reproduces all four with 0 LSB difference.
+- `make sanitize` (ASan + UBSan) target, run in CI.
+
 ## 0.1.1 (2026-10-16)
 
 Documentation release; no change to the contract (`rtty-c1`), the ABI (1) or the

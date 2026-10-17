@@ -6,8 +6,11 @@
  * Copyright (C) Dave Freese W1HKJ and the fldigi developers.
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Contract "rtty-c1", ABI 1. Audio in (doubles), 5-bit Baudot codes out; the Baudot
- * to text step (LTRS/FIGS, unshift-on-space) is left to the caller.
+ * Transmitter after fldigi 4.2.13 rtty::send_char/send_idle/flush_stream (src/rtty_tx.c).
+ *
+ * Contract "rtty-c1", ABI 1, capability tag "tx=1". Receive: audio in (doubles), 5-bit
+ * Baudot codes out. Transmit: 5-bit Baudot codes in, audio out. The Baudot text step
+ * (LTRS/FIGS, unshift-on-space, CR/LF framing) is left to the caller in both directions.
  */
 #ifndef FLDIGI_RTTY_H
 #define FLDIGI_RTTY_H
@@ -34,7 +37,7 @@ typedef struct frtty_config {
 
 typedef struct frtty_rx frtty_rx;
 
-/* "fldigi-rtty-core <x.y.z> contract=rtty-c1 abi=1" */
+/* "fldigi-rtty-core <x.y.z> contract=rtty-c1 abi=1 tx=1" */
 const char *frtty_version(void);
 
 /* NULL on invalid configuration or out of memory. */
@@ -63,6 +66,47 @@ double frtty_rx_offset_hz(const frtty_rx *rx);
 /* The receive filter's taps (count = frtty_filter_len(), 256 for 45.45 Bd). */
 size_t frtty_filter_len(const frtty_rx *rx);
 const double *frtty_filter_taps(const frtty_rx *rx);
+
+/*
+ * ---- Transmitter (capability tag "tx=1", fldigi 4.2.13 shaped RTTY TX) ----
+ *
+ * Real AFSK audio in [-1, 1]: mark (the higher tone, 1 bits and the stop element) and
+ * space (the lower tone, the start bit), each a phase-continuous oscillator keyed by a
+ * raised-cosine symbol shaper, normalised by the running peak (rtty.cxx:915-1056).
+ * A transmission is frtty_tx_render / frtty_tx_idle calls (any mix, the state carries
+ * over) followed by one frtty_tx_flush; a later render starts the next transmission
+ * from the decayed state (as fldigi does). frtty_tx_reset returns to the state of a
+ * freshly started fldigi. One instance per thread; no global state.
+ */
+typedef struct frtty_tx_config {
+    double sample_rate;   /* 8000, 12000 or 48000 */
+    double mark_hz;       /* upper tone, 300..3000 Hz, e.g. 2295 */
+    double space_hz;      /* lower tone, 300..3000 Hz, mark - space = 23..1000 Hz */
+    double baud;          /* 45..300, e.g. 45.45 */
+    double stop_bits;     /* 1.0, 1.5 or 2.0 */
+} frtty_tx_config;
+
+typedef struct frtty_tx frtty_tx;
+
+/* NULL on an invalid configuration or out of memory. */
+frtty_tx *frtty_tx_create(const frtty_tx_config *cfg);
+void      frtty_tx_destroy(frtty_tx *tx);
+/* Oscillator phases 0, shapers preset, maxamp 0 (fldigi restart + tx_init). */
+void      frtty_tx_reset(frtty_tx *tx);
+
+/* Samples of one character: 6 * symbollen + stoplen (1320 at 8 kHz, 45.45 Bd, 1.5). */
+size_t frtty_tx_frame_len(const frtty_tx *tx);
+/* Samples of the flush: 6 * symbollen (1056 at 8 kHz, 45.45 Bd). */
+size_t frtty_tx_flush_len(const frtty_tx *tx);
+
+/* Render n 5-bit codes (start, 5 data bits LSB first, stop); returns the samples
+ * written, or 0 without a state change when out_max is too small. */
+size_t frtty_tx_render(frtty_tx *tx, const uint8_t *codes, size_t n,
+                       double *out, size_t out_max);
+/* n LTRS idle characters (send_idle); same return rule. */
+size_t frtty_tx_idle(frtty_tx *tx, size_t n, double *out, size_t out_max);
+/* Shaped decay to silence (flush_stream); same return rule. */
+size_t frtty_tx_flush(frtty_tx *tx, double *out, size_t out_max);
 
 #ifdef __cplusplus
 }

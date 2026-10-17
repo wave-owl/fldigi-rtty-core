@@ -2,16 +2,18 @@
 
 [![CI](https://github.com/wave-owl/fldigi-rtty-core/actions/workflows/ci.yml/badge.svg)](https://github.com/wave-owl/fldigi-rtty-core/actions/workflows/ci.yml)
 
-A C99 library that receives RTTY (2-FSK teleprinter signals) the way fldigi 4.2.13 does:
-audio samples in, 5-bit Baudot codes out. It is a C port of the Python port of the fldigi
-receiver that [wave-owl](https://github.com/wave-owl/wave-owl) used before, and it is now
-wave-owl's only RTTY receiver.
+A C99 library that receives and transmits RTTY (2-FSK teleprinter signals) the way fldigi
+4.2.13 does: audio samples in, 5-bit Baudot codes out, and 5-bit Baudot codes in, shaped
+AFSK audio out. The receiver is a C port of the Python port of the fldigi receiver that
+[wave-owl](https://github.com/wave-owl/wave-owl) used before, and it is now wave-owl's only
+RTTY receiver. The transmitter (since 0.2.0) is a line-by-line port of fldigi's shaped RTTY
+transmit path and reproduces fldigi's own TX audio sample for sample.
 
 | | |
 |---|---|
 | **Is** | A single-channel 2-FSK RTTY **receiver**: one instance decodes one signal with known mark and space tones. Input is a stream of `double` audio samples, output is a stream of character codes (5 bits for Baudot, up to 8 bits configurable), plus an SNR estimate and the AFC offset. |
-| **Is not** | A transmitter (no modulator yet; planned, see [Roadmap](#roadmap)). |
-| | A Baudot-to-text converter: LTRS/FIGS shift handling, the figures table and unshift-on-space are left to the caller (wave-owl does this in `src/modes/rtty/ita2.py`). |
+| **Is** | A shaped 2-FSK RTTY **transmitter** (capability tag `tx=1`): 5-bit codes in, real audio in [-1, 1] out, at 8000, 12000 or 48000 Hz. See [Transmitter](#transmitter). |
+| **Is not** | A Baudot-to-text converter or text framer: LTRS/FIGS shift handling, the figures table and unshift-on-space are left to the caller in both directions (wave-owl does this in `src/modes/rtty/ita2.py`, including fldigi's TX framing: LTRS preamble, auto-CRLF, CR LF postamble). |
 | | A skimmer: no multi-channel operation, no signal detection, no tone search. The caller tells each instance where mark and space are. |
 | | An I/O layer: no sound card, file or network access. |
 | | Threaded or allocating at run time: the library creates no threads and allocates memory only in `frtty_rx_create()` (the receive path `frtty_rx_process()` performs no allocation). It has no global or static mutable state. |
@@ -19,6 +21,7 @@ wave-owl's only RTTY receiver.
 ## Contents
 
 - [Signal chain](#signal-chain)
+- [Transmitter](#transmitter)
 - [Configuration reference](#configuration-reference)
 - [API reference](#api-reference)
 - [Usage examples](#usage-examples)
@@ -200,6 +203,56 @@ reference differs from fldigi 4.2.13, the core inherits the difference:
 - No reverse flag, no parity, no squelch, no mark-only/space-only decoding
   (`progdefaults.rtty_cwi`, `rtty.cxx:717-724`); own SNR estimator; AFC as described above.
 
+## Transmitter
+
+All C functions are in `src/rtty_tx.c`; every block cites the fldigi 4.2.13 lines it was
+ported from. Only fldigi's **shaped** keying is ported (`progStatus.shaped_rtty`, default
+on per `src/status/status.cxx:236`), which gives the narrowest spectrum.
+
+```
+ 5-bit code c
+     |  send_char (rtty.cxx:1058-1100): start bit 0, data bits (c >> i) & 1 for i = 0..4,
+     |  stop element 1; each bit symbollen = (int)(rate / baud + 0.5) samples (rtty.cxx:256),
+     |  stop stoplen = (int)(stop * rate / baud + 0.5) samples (rtty.cxx:274-278)
+     v
+ symbol 0/1 per sample
+     |  SymbolShaper x2 (rtty.cxx:1510-1631): six raised-cosine step integrators over a
+     |  table of (int)(rate / baud * 5.49) samples, rcos(t, T, 1) with T = rate / (2 baud) /
+     |  1.568 (misc.h:82-88), table normalised to an integral of 1, output / sqrt(2)
+     v
+ mark  = shaper1(symbol)  * sin(phase1 += 2 pi f_mark  / rate)   (Oscillator, rtty.cxx:1502-1508)
+ space = shaper2(!symbol) * sin(phase2 += 2 pi f_space / rate)
+     |  signal = mark + space; out = signal / maxamp, maxamp = running peak, pre-scanned
+     |  once over 100 alternating symbols of 3 bit lengths (rtty.cxx:915-980, 982-1030)
+     v
+ audio in [-1, 1]
+```
+
+- **Tones:** mark is the upper tone and carries the 1 bits and the stop element
+  (`freq1 = f + shift / 2`, `rtty.cxx:936-937`). There is no reverse option.
+- **Idle:** `frtty_tx_idle` sends LTRS characters (`send_idle`, `rtty.cxx:1102-1109`).
+- **End:** `frtty_tx_flush` releases both shapers for 6 bit lengths, so the signal decays
+  to zero without a key click (`flush_stream`, `rtty.cxx:1032-1056`).
+- **Delay:** the shaper centres each keying edge in its table, so the audio lags the
+  keying by `table / 2` samples (483 samples = 2.74 bit lengths at 8 kHz, 45.45 Bd). The
+  flush covers it.
+- **Level:** fldigi's TX level (`txlevel`, default -12 dB, `modem.cxx:651-657`) is not
+  applied; the caller scales.
+
+### Differences from fldigi (transmitter)
+
+- `maxamp` is per instance; fldigi keeps one process-wide global (`rtty.cxx:891`).
+  `frtty_tx_create`/`frtty_tx_reset` start like a freshly started fldigi (maxamp 0,
+  oscillator phases 0, shapers preset), so the first transmission matches fldigi's first
+  transmission after start-up exactly.
+- fldigi starts the shaper counters at 1024 (`rtty.cxx:1534-1539`), which means "free" only
+  while the table has at most 1024 entries (fldigi always runs RTTY at 8000 Hz, 966
+  entries at 45.45 Bd). The port starts them at the table size when the table is longer
+  (12 and 48 kHz), where fldigi's value would drop the first keying edges. At 8000 Hz the
+  output is identical.
+- Not ported: unshaped keying (`nco`, `rtty.cxx:893-900`), PseudoFSK (`FSKnco`,
+  `rtty.cxx:902-909`), reverse, parity, 7/8-bit ASCII, hardware FSK.
+
 ## Configuration reference
 
 ```c
@@ -242,7 +295,7 @@ All declarations are in `include/fldigi_rtty.h`.
 
 | Function | Description |
 |----------|-------------|
-| `const char *frtty_version(void)` | Version and contract string, e.g. `"fldigi-rtty-core 0.1.1 contract=rtty-c1 abi=1"`. Static string, never freed. |
+| `const char *frtty_version(void)` | Version and contract string, e.g. `"fldigi-rtty-core 0.2.0 contract=rtty-c1 abi=1 tx=1"`. Static string, never freed. |
 | `frtty_rx *frtty_rx_create(const frtty_config *cfg)` | New receiver in its initial state. The config is copied; `cfg` may be freed afterwards. `NULL` on invalid config or out of memory. |
 | `void frtty_rx_destroy(frtty_rx *rx)` | Free the receiver. `NULL` is allowed. |
 | `void frtty_rx_reset(frtty_rx *rx)` | Back to the state right after create: mixer phases, filter history, trackers, framing, SNR sums and AFC offset are cleared. Tones keep their last values (from `set_tones`). `NULL` is ignored. |
@@ -252,6 +305,19 @@ All declarations are in `include/fldigi_rtty.h`.
 | `double frtty_rx_offset_hz(const frtty_rx *rx)` | Current AFC offset in Hz; 0 without AFC. |
 | `size_t frtty_filter_len(const frtty_rx *rx)` | Number of filter taps (256). |
 | `const double *frtty_filter_taps(const frtty_rx *rx)` | The filter taps, owned by the receiver, valid until `frtty_rx_destroy()`. |
+
+Transmitter (capability tag `tx=1`):
+
+| Function | Description |
+|----------|-------------|
+| `frtty_tx *frtty_tx_create(const frtty_tx_config *cfg)` | New transmitter. `cfg`: `sample_rate` 8000, 12000 or 48000; `mark_hz` and `space_hz` within 300..3000 Hz, mark above space by 23..1000 Hz; `baud` 45..300; `stop_bits` 1.0, 1.5 or 2.0. `NULL` for anything else or out of memory. Allocates the two shaper tables; nothing else allocates. |
+| `void frtty_tx_destroy(frtty_tx *tx)` | Free it. `NULL` is allowed. |
+| `void frtty_tx_reset(frtty_tx *tx)` | Back to the start state (oscillator phases 0, shapers preset, maxamp 0). |
+| `size_t frtty_tx_frame_len(const frtty_tx *tx)` | Samples of one character, `6 * symbollen + stoplen` (1232 / 1320 / 1408 at 8 kHz, 45.45 Bd, 1 / 1.5 / 2 stop bits). |
+| `size_t frtty_tx_flush_len(const frtty_tx *tx)` | Samples of the flush, `6 * symbollen` (1056 at 8 kHz, 45.45 Bd). |
+| `size_t frtty_tx_render(frtty_tx *tx, const uint8_t *codes, size_t n, double *out, size_t out_max)` | Render `n` codes (low 5 bits used). Returns `n * frame_len`, or 0 without any state change when `out_max` is smaller. |
+| `size_t frtty_tx_idle(frtty_tx *tx, size_t n, double *out, size_t out_max)` | `n` LTRS idle characters; same return rule. |
+| `size_t frtty_tx_flush(frtty_tx *tx, double *out, size_t out_max)` | The shaped end of a transmission; same return rule. A later render continues from the decayed state, as fldigi's next transmission does. |
 
 ### Output codes
 
@@ -409,8 +475,12 @@ wave-owl's binding is
 - **ABI** `1` (`FRTTY_ABI`): the binary interface: function signatures and the layout of
   `frtty_config`.
 - **Version string** (`frtty_version()`):
-  `fldigi-rtty-core <major>.<minor>.<patch> contract=rtty-c1 abi=1`. Hosts must check the
-  `contract=` and `abi=` tokens, not the version number.
+  `fldigi-rtty-core <major>.<minor>.<patch> contract=rtty-c1 abi=1 tx=1`. Hosts must check
+  the `contract=` and `abi=` tokens, not the version number.
+- **Capability tag** `tx=1` (since 0.2.0): the `frtty_tx_*` functions exist. The
+  transmitter was added without touching the receiver, so contract and ABI stayed; a host
+  binds the TX symbols only when the tag is present and keeps receiving with an older
+  RX-only library.
 
 Semantic versioning, with the following rules:
 
@@ -445,6 +515,22 @@ wave-owl; this C core is now the reference, and the goldens change only delibera
   (`-` = no codes).
 - `taps.txt`: the 256 filter taps, one `%.17g` per line.
 
+Transmitter goldens in `tests/golden/tx/` are fldigi 4.2.13's own TX output, written by
+the headless fldigi benchmark build of wave-owl
+(`openspec/changes/archive/2026-10-16-fix-psk-rtty-vs-fldigi/bench/`), carrier 1500 Hz
+(mark 1585 Hz, space 1415 Hz), shaped keying, TX level -12 dB, 16-bit PCM.
+`tests/golden/make_tx_golden.py /path/to/wave-owl` copies them from wave-owl's
+`src/modes/rtty/vectors/` (sha256 checked against the provenance JSON there) and frames
+their text into codes with wave-owl's `TxFramer` (fldigi `tx_process`):
+
+| TX case | Content |
+|---------|---------|
+| `rtty_cq` | `CQ CQ DE DG6FL DG6FL K`, 45.45 Bd, 1.5 stop bits: 35 characters + flush, 47256 samples |
+| `rtty_cq_stop1`, `rtty_cq_stop2` | the same with 1 and 2 stop bits (44176 and 50336 samples) |
+| `rtty_50bd_long` | 50 Bd, 1.5 stop bits, 229 characters: lower case, figures, an unsupported `~`, a newline and two automatic line breaks at 72 characters |
+
+Receiver goldens:
+
 | Case | Content |
 |------|---------|
 | `rtty_cq_clean` | wave-owl's fldigi 4.2.13 reference vector (`src/modes/rtty/vectors/rtty_cq.wav`, `CQ CQ DE DG6FL DG6FL K` transmitted by fldigi 4.2.13), 18.9 s of 45.45 Bd / 170 Hz RTTY, mark 1585 Hz, space 1415 Hz |
@@ -456,7 +542,8 @@ wave-owl; this C core is now the reference, and the goldens change only delibera
 
 ### Tests
 
-`make test` builds `build/test_rtty` and runs it on `tests/golden`. It checks:
+`make test` builds `build/test_rtty` and `build/test_rtty_tx` and runs them on
+`tests/golden`. The receiver test checks:
 
 - the version string contains `contract=rtty-c1 abi=1`;
 - the 256 filter taps against `taps.txt` (maximum error ≤ 1e-12);
@@ -468,22 +555,29 @@ wave-owl; this C core is now the reference, and the goldens change only delibera
 - `frtty_rx_reset()` reproduces a fresh run, with and without AFC;
 - `frtty_rx_set_tones()` on a receiver created with other tones gives the golden codes.
 
+The transmitter test checks:
+
+- each TX golden: the codes rendered and flushed, times 10^(-12/20), rounded as
+  `lrint(x * 32767)`, are within 1 LSB of fldigi's samples with the same length (all four
+  cases are 0 LSB on macOS arm64);
+- the frame of one code (start bit space, data bits LSB first, stop mark, after the
+  shaper delay), the frame lengths for 1, 1.5 and 2 stop bits, mark as the upper tone
+  (spectral peaks of data and start bits at 2295 / 2125 Hz ± 5 Hz), the peak bound
+  (|x| ≤ 1) and the clean end (last 10 ms below -60 dBFS) at 8 and 48 kHz;
+- invalid configurations (rate 44100, shift 10 Hz, mark below space, tone above 3000 Hz,
+  stop 1.25, baud 0, `NULL`), short output buffers (0 and no state change) and
+  `frtty_tx_reset()`; the version tag `tx=1`.
+
 ### Sanitizers
 
 The test suite runs clean under AddressSanitizer and UndefinedBehaviorSanitizer:
-
-```sh
-make BUILD=build-san \
-     CFLAGS="-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=undefined" \
-     LDFLAGS="-fsanitize=address,undefined" test
-```
-
-This is a manual check; CI does not run it.
+`make sanitize` builds into `build/san` with `-O1 -g -fsanitize=address,undefined` and runs
+`make test`. CI runs it on both platforms.
 
 ### CI
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `make` and `make test` on every
-push and pull request, on `ubuntu-latest` and `macos-latest` (default compilers, `-O3`).
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `make`, `make test` and
+`make sanitize` on every push and pull request, on `ubuntu-latest` and `macos-latest` (default compilers, `-O3`).
 
 ### Floating point
 
@@ -525,7 +619,8 @@ Unix systems (`.so`, soname `libfldigi_rtty.so`); there is no Windows target.
 |---------|--------|
 | `make` | `build/libfldigi_rtty.a` and the shared library |
 | `make static` / `make shared` | only one of them |
-| `make test` | build and run `build/test_rtty tests/golden` |
+| `make test` | build and run `build/test_rtty` and `build/test_rtty_tx` on `tests/golden` |
+| `make sanitize` | the tests under ASan + UBSan in `build/san` |
 | `make clean` | remove the build directory |
 | `make BUILD=/abs/dir shared` | out-of-tree build (wave-owl builds into `third_party/build/fldigi-rtty-core`, so the submodule checkout stays clean) |
 | `make CFLAGS="-O2 -g"` | override optimisation/debug flags; `-std=c99 -Wall -Wextra -Werror -pedantic -ffp-contract=off -fPIC` are always added |
@@ -553,7 +648,7 @@ lipo -create build-arm64/libfldigi_rtty.dylib build-x86_64/libfldigi_rtty.dylib 
 - Former Python reference: wave-owl `src/modes/rtty/demod.py` at commit
   `b6be59bfb748e4f3457b421aa362d26c34ca49d0` (removed since)
 
-Every ported block in `src/rtty_rx.c` carries a `file.cxx:a-b` citation of the fldigi
+Every ported block in `src/rtty_rx.c` and `src/rtty_tx.c` carries a `file.cxx:a-b` citation of the fldigi
 source it was ported from (`rtty.cxx`, `fftfilt.cxx`, `misc.h`).
 
 ### Updating to a new fldigi release
@@ -566,7 +661,8 @@ source it was ported from (`rtty.cxx`, `fftfilt.cxx`, `misc.h`).
    (file removed). It also lists changes in the ported fldigi directories that no
    citation covers, and the files that record the old pin.
 2. Renumber `shifted` citations. Review `changed`, `gone` and uncited changes; port
-   behavioural changes to `src/rtty_rx.c`.
+   behavioural changes to `src/rtty_rx.c` / `src/rtty_tx.c`. For the transmitter,
+   regenerate fldigi's TX output with the bench and compare (`make_tx_golden.py`).
 3. If the output changes, regenerate the goldens deliberately and bump the contract (see
    [Contract and versioning](#contract-and-versioning)). The goldens are no longer
    produced from a Python receiver; new expected values come from this core after review
@@ -576,8 +672,7 @@ source it was ported from (`rtty.cxx`, `fftfilt.cxx`, `misc.h`).
 
 ## Roadmap
 
-- **Transmit:** an RTTY modulator (Baudot codes to audio, after fldigi's `rtty::tx_process`)
-  is planned as a wave-owl OpenSpec change.
+- **Transmit:** done in 0.2.0 (wave-owl OpenSpec change `add-rtty-tx`).
 - **Multi-channel use:** a wave-owl RTTY skimmer that detects signals and runs one receiver
   per signal (OpenSpec change `add-rtty-skimmer`) is deferred. The API already allows many
   independent instances.
