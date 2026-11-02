@@ -1,0 +1,30 @@
+{
+  "gitlinks": {},
+  "vendored": [
+    {
+      "path": "src/rtty_rx.c",
+      "repository": "wave-owl/fldigi",
+      "commit": "e7c3ab3709ad62a7d91829364eb48a05fa325c0d",
+      "licenses": [
+        "LICENSE"
+      ],
+      "evidence": [
+        "README.md"
+      ]
+    },
+    {
+      "path": "src/rtty_tx.c",
+      "repository": "wave-owl/fldigi",
+      "commit": "e7c3ab3709ad62a7d91829364eb48a05fa325c0d",
+      "licenses": [
+        "LICENSE"
+      ],
+      "evidence": [
+        "README.md"
+      ]
+    }
+  ],
+  "references": [],
+  "models": [],
+  "external_libraries": []
+}
