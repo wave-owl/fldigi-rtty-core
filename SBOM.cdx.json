@@ -13,7 +13,7 @@
           "content": "cf9c6272ed73d6132af761b3eab376da5c15bf6c452b45803c10ff80a75a6f22"
         }
       ],
-      "name": "/Users/gerolfziegenhain/src/wave-owl/local/sbom-core-preflight-v2/fldigi-rtty-core/.source-input/.github/workflows/ci.yml",
+      "name": "tracked-source/.github/workflows/ci.yml",
       "type": "file"
     },
     {

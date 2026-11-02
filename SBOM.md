@@ -28,7 +28,7 @@ None.
 | src/rtty_rx.c | e7c3ab3709ad62a7d91829364eb48a05fa325c0d | declared-vendored-source | unresolved; manual review required |
 | src/rtty_tx.c | e7c3ab3709ad62a7d91829364eb48a05fa325c0d | declared-vendored-source | unresolved; manual review required |
 | actions/checkout | v4 | Syft source/package discovery | unresolved |
-| /Users/gerolfziegenhain/src/wave-owl/local/sbom-core-preflight-v2/fldigi-rtty-core/.source-input/.github/workflows/ci.yml | unresolved | Syft source/package discovery | unresolved |
+| tracked-source/.github/workflows/ci.yml | unresolved | Syft source/package discovery | unresolved |
 
 License evidence paths/hashes, source manifests, model hashes and conditional
 CMake declarations are recorded in SBOM.cdx.json. Declared upstream pins do not
